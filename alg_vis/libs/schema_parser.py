@@ -59,6 +59,22 @@ class VSDXParser:
 
         return {"blocks": [], "connections": []}
 
+    def detect_block_type(self,shape_name, text):
+        text = (text or "").strip().lower()
+        name = (shape_name or "").lower()
+
+        if "start" in text or any(n in name for n in ["terminator"]):
+            return "start"
+        if "stop" in text or "koniec" in text:
+            return "stop"
+        if any(n in name for n in ["decision","diamond"]) or any(op in text for op in [">", "<", "==", "!="]):
+            return "decision"
+        if any(n in name for n in ["data","rectangle"]) or any(w in text for w in ["wczytaj", "wyświetl", "podaj","wypisz","wprowadź"]):
+            return "io"
+        if "process" in name or "=" in text:
+            return "process"
+        return "unknown"
+
     def _extract_schema(self, tree: etree._ElementTree) -> Dict[str, List[Dict[str, Union[str, None]]]]:
         """
         Extract blocks and connections from the parsed XML tree.
@@ -76,6 +92,7 @@ class VSDXParser:
 
             text_elements = shape.xpath('.//v:Text/text()', namespaces=self.ns)
             shape_text = "".join(text_elements).strip().replace('\n', ' ')
+            shape_type = self.detect_block_type(shape.get("NameU"), shape_text)
 
             if not shape_text:
                 shape_text = shape.get("NameU", "")
@@ -84,6 +101,7 @@ class VSDXParser:
                 "id": shape_id,
                 "name": shape.get("NameU"),
                 "text": shape_text,
+                "type": shape_type,
             }
 
         connections_map = collections.defaultdict(dict)
