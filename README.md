@@ -22,12 +22,22 @@ This project is a visualization program for algorithms represented by block sche
 
 ## Usage
 
+### Running the Application
+
+To run the Streamlit application:
+
+1. Run the Streamlit app:
+   ```bash
+   streamlit run src/gui/viso_view.py
+   ```
+2. Open the provided URL in your browser to view the application.
+
 ### Parsing a `.vsdx` File
 
 Use the `VSDXParser` class to parse a `.vsdx` file:
 
 ```python
-from alg_vis.libs.schema_parser import VSDXParser
+from src.libs.schema_parser import VSDXParser
 
 parser = VSDXParser("path/to/file.vsdx")
 schema = parser.parse()
@@ -39,7 +49,7 @@ print(schema)
 Run the test script to parse a sample `.vsdx` file:
 
 ```bash
-python alg_vis/test/test_parser.py
+python src/test/test_parser.py
 ```
 
 ## File Structure

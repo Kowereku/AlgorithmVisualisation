@@ -1,5 +1,5 @@
 import pprint
-from alg_vis.libs.schema_parser import VSDXParser
+from src.libs.schema_parser import VSDXParser
 
 
 if __name__ == "__main__":
