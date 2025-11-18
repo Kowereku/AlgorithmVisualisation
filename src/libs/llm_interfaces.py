@@ -14,7 +14,6 @@ def get_api_key(config_file="credentials.ini") -> str | None:
         The API key as a string, or None if not found.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    print(script_dir)
 
     parent_dir = os.path.dirname(script_dir)
     grandparent_dir = os.path.dirname(parent_dir)
@@ -59,7 +58,7 @@ def get_gemini_response(prompt: str) -> str:
         model = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=MY_API_KEY)
 
         response = model.invoke(prompt)
-
+        print("Successfully received response from Gemini API.")
         return response.content
 
     except Exception as e:
