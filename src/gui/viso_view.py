@@ -55,11 +55,9 @@ class VisoViewApp:
         st.title("Algorithm Visualization Tool")
         st.write("Visualize algorithms presented as block schemas.")
 
-        # Render sidebar components
-        uploaded_file_content = self.sidebar_manager.render_sidebar()
+        file_content = self.sidebar_manager.render_sidebar()
 
-        # Render main content
-        self.render_main_content(uploaded_file_content)
+        self.render_main_content(file_content)
 
 
 if __name__ == "__main__":
