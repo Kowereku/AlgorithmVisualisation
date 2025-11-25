@@ -27,7 +27,7 @@ class VisoViewApp:
             parsed_data = self.parse_vsdx_file(uploaded_file_content)
             st.write("Parsed Data:", parsed_data)
         else:
-            st.info("Please upload a file and click 'Generate Visualization'.")
+            st.info("Please select an algorithm and click 'Generate Visualization'.")
 
     def parse_vsdx_file(self, file_content: bytes):
         """
