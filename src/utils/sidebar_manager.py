@@ -1,4 +1,6 @@
 import streamlit as st
+import os
+from . import EXAMPLES
 from typing import Optional
 
 
@@ -7,38 +9,51 @@ class SidebarManager:
     A class to manage the Streamlit sidebar components.
     """
 
+
     def __init__(self):
+        self.EXAMPLES = EXAMPLES
         self.uploaded_file = None
+        self.selected_example_path = None
 
     def render_sidebar(self) -> Optional[bytes]:
         """
-        Render the sidebar components for file upload and visualization generation.
+        Render the sidebar components for file upload or example selection.
 
         Returns:
-            Optional[bytes]: The uploaded file content, or None if no file is uploaded.
+            Optional[bytes]: The file content (uploaded or example), or None.
         """
         st.sidebar.title("Algorithm Visualization")
-        st.sidebar.info("Upload a block schema file to generate a visualization.")
 
-        # File uploader
-        self.uploaded_file = st.sidebar.file_uploader("Upload your .vsdx file", type=["vsdx"])
+        st.sidebar.markdown("---")
 
-        # Generate visualization button
+        return self._render_example_mode()
+
+
+    def _render_example_mode(self) -> Optional[bytes]:
+        st.sidebar.info("Choose a pre-defined algorithm.")
+
+        selected_name = st.sidebar.selectbox(
+            "Select Algorithm",
+            options=list(self.EXAMPLES.keys())
+        )
+
+        self.selected_example_path = self.EXAMPLES.get(selected_name)
+
         if st.sidebar.button("Generate Visualization"):
-            return self._handle_generate_visualization()
-
+            return self._handle_example_load()
         return None
 
-    def _handle_generate_visualization(self) -> Optional[bytes]:
-        """
-        Handle the logic for the 'Generate Visualization' button.
-
-        Returns:
-            Optional[bytes]: The uploaded file content, or None if no file is uploaded.
-        """
-        if self.uploaded_file is not None:
-            st.sidebar.success("File uploaded successfully!")
-            return self.uploaded_file.read()
+    def _handle_example_load(self) -> Optional[bytes]:
+        """Reads the local example file and returns bytes."""
+        if self.selected_example_path and os.path.exists(self.selected_example_path):
+            try:
+                with open(self.selected_example_path, "rb") as f:
+                    content = f.read()
+                st.sidebar.success(f"Loaded: {self.selected_example_path}")
+                return content
+            except Exception as e:
+                st.sidebar.error(f"Error loading example: {e}")
+                return None
         else:
-            st.sidebar.error("Please upload a file before generating visualization.")
+            st.sidebar.error(f"File not found: {self.selected_example_path}")
             return None

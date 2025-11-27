@@ -48,8 +48,7 @@ class VisoViewApp:
 
                 st.info("Graphical visualization would be rendered here based on parsed_data.")
         else:
-            with st.container(border=True):
-                st.info("👈 Please upload a .vsdx file in the sidebar to begin.")
+            st.info("Please select an algorithm and click 'Generate Visualization'.")
 
     @staticmethod
     def parse_vsdx_file(file_content: bytes):
@@ -124,9 +123,9 @@ class VisoViewApp:
         st.title("Algorithm Visualization Tool")
         st.markdown("Visualize algorithms presented as block schemas and chat with AI for insights.")
 
-        uploaded_file_content = self.sidebar_manager.render_sidebar()
+        file_content = self.sidebar_manager.render_sidebar()
 
-        self.render_main_content(uploaded_file_content)
+        self.render_main_content(file_content)
 
         self.render_chat_component()
 
