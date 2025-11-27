@@ -27,7 +27,7 @@ class VisoViewApp:
             parsed_data = self.parse_vsdx_file(uploaded_file_content)
             st.write("Parsed Data:", parsed_data)
         else:
-            st.info("Please upload a file and click 'Generate Visualization'.")
+            st.info("Please select an algorithm and click 'Generate Visualization'.")
 
     def parse_vsdx_file(self, file_content: bytes):
         """
@@ -55,11 +55,9 @@ class VisoViewApp:
         st.title("Algorithm Visualization Tool")
         st.write("Visualize algorithms presented as block schemas.")
 
-        # Render sidebar components
-        uploaded_file_content = self.sidebar_manager.render_sidebar()
+        file_content = self.sidebar_manager.render_sidebar()
 
-        # Render main content
-        self.render_main_content(uploaded_file_content)
+        self.render_main_content(file_content)
 
 
 if __name__ == "__main__":
