@@ -22,60 +22,12 @@ class VisoViewApp:
     @staticmethod
     def apply_custom_styles():
         """
-        Inject custom CSS to style buttons, headers, and the general layout.
+        Inject custom CSS from an external file to style buttons, headers, and the general layout.
         """
-        st.markdown("""
-            <style>
-            /* Main Title Gradient (Green) */
-            h1 {
-                background: -webkit-linear-gradient(45deg, #28a745, #20c997); /* Green gradient */
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                font-weight: 800;
-                padding-bottom: 10px;
-            }
-
-            /* Subheaders */
-            h3 {
-                color: #444;
-                font-weight: 600;
-            }
-
-            /* Custom Button Styling - Gradient & Shadow (Green) */
-            div.stButton > button {
-                background: linear-gradient(90deg, #28a745 0%, #20c997 100%); /* Green gradient */
-                color: white;
-                border: none;
-                padding: 0.5rem 1rem;
-                border-radius: 10px;
-                font-weight: bold;
-                transition: all 0.3s ease;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            }
-
-            div.stButton > button:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 7px 14px rgba(0, 0, 0, 0.15);
-                background: linear-gradient(90deg, #20c997 0%, #28a745 100%); /* Reverse green gradient on hover */
-            }
-
-            div.stButton > button:active {
-                transform: translateY(1px);
-            }
-
-            /* Visualize the chat input area a bit more clearly */
-            .stChatInputContainer {
-                padding-bottom: 20px;
-            }
-
-            /* Expander styling */
-            .streamlit-expanderHeader {
-                background-color: #f0f2f6;
-                border-radius: 5px;
-                font-size: 0.9rem;
-            }
-            </style>
-        """, unsafe_allow_html=True)
+        css_file_path = os.path.join(os.path.dirname(__file__), "styles", "viso_view.css")
+        with open(css_file_path, "r") as css_file:
+            css_content = css_file.read()
+        st.markdown(f"<style>{css_content}</style>", unsafe_allow_html=True)
 
     def render_main_content(self, uploaded_file_content: bytes):
         """
