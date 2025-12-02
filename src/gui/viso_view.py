@@ -5,122 +5,147 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 
 import streamlit as st
 from src.utils.sidebar_manager import SidebarManager
-from src.libs.schema_parser import VSDXParser
+from src.utils.schema_manager import SchemaManager
 from src.libs.llm_interfaces import get_gemini_response
+from src.prompts.analyze_prompt import get_analyze_prompt
 
 
 class VisoViewApp:
-    """
-    A class to manage the Streamlit app for algorithm visualization.
-    """
-
     def __init__(self):
         self.sidebar_manager = SidebarManager()
+
         if "messages" not in st.session_state:
             st.session_state.messages = []
+        if "ai_mode" not in st.session_state:
+            st.session_state.ai_mode = "Generate"
+        if "ai_generated_schemas" not in st.session_state:
+            st.session_state.ai_generated_schemas = []
+        if "selected_context" not in st.session_state:
+            st.session_state.selected_context = None
 
     @staticmethod
     def apply_custom_styles():
-        """
-        Inject custom CSS from an external file to style buttons, headers, and the general layout.
-        """
         css_file_path = os.path.join(os.path.dirname(__file__), "styles", "viso_view.css")
-        with open(css_file_path, "r") as css_file:
-            css_content = css_file.read()
-        st.markdown(f"<style>{css_content}</style>", unsafe_allow_html=True)
+        try:
+            with open(css_file_path, "r") as css_file:
+                css_content = css_file.read()
+            st.markdown(f"<style>{css_content}</style>", unsafe_allow_html=True)
+        except FileNotFoundError:
+            pass
 
-    def render_main_content(self, uploaded_file_content: bytes):
-        """
-        Render the main content area of the app (Visualization).
-
-        Args:
-            uploaded_file_content (bytes): The content of the uploaded file.
-        """
+    def render_main_content(self, context_data):
         st.markdown("### Visualization Workspace")
 
-        if uploaded_file_content:
-            st.success("[FUTURE] Visualization generated successfully!")
-            parsed_data = self.parse_vsdx_file(uploaded_file_content)
-            st.write("Parsed Data:", parsed_data)
+        if not context_data:
+            st.info("Please select an algorithm from the sidebar or generate one with AI.")
+            return
+
+        final_schema = None
+
+        if isinstance(context_data, bytes):
+            with st.spinner("Parsing Visio file..."):
+                try:
+                    final_schema = SchemaManager.parse_vsdx_file(context_data)
+                except Exception as e:
+                    st.error(str(e))
+                    return
+
+        elif isinstance(context_data, dict):
+            final_schema = context_data
+
         else:
-            st.info("Please select an algorithm and click 'Generate Visualization'.")
+            st.error(f"Unknown data format: {type(context_data)}")
+            return
 
-    @staticmethod
-    def parse_vsdx_file(file_content: bytes):
-        """
-        Parse the uploaded .vsdx file and extract blocks and connections.
+        if final_schema:
+            title = final_schema.get("title", "Algorithm")
+            summary = final_schema.get("summary", "")
 
-        Args:
-            file_content (bytes): The content of the uploaded .vsdx file.
+            st.markdown(f"#### {title}")
+            if summary:
+                st.caption(summary)
 
-        Returns:
-            dict: Parsed data containing blocks and connections.
-        """
-        try:
-            with open("temp.vsdx", "wb") as temp_file:
-                temp_file.write(file_content)
+            st.markdown("##### Schema Structure")
+            st.json(final_schema)
 
-            parser = VSDXParser("temp.vsdx")
-            parsed_data = parser.parse()
-            return parsed_data
-        except Exception as e:
-            st.error(f"Error parsing file: {e}")
-            return {}
-        finally:
-            if os.path.exists("temp.vsdx"):
-                os.remove("temp.vsdx")
+            st.success("Schema loaded successfully into workspace.")
+        else:
+            st.error("Failed to extract valid schema data.")
 
     def render_chat_component(self):
-        """
-        Render the chat interface.
-        The st.chat_input handles the bottom pinning automatically.
-        """
         st.divider()
-
         st.subheader("AI Visualization Assistant")
-
-        st.caption("Ask questions about the logic, flow, or specific blocks in your diagram.")
-
-        user_avatar = "🧑‍💻"
-        assistant_avatar = "🤖"
 
         for message in st.session_state.messages:
             role = message["role"]
-            avatar = user_avatar if role == "user" else assistant_avatar
+            with st.chat_message(role):
+                if role == "assistant" and isinstance(message["content"], dict):
+                    self._render_schema_block(message["content"], is_new=False)
+                else:
+                    st.markdown(message["content"])
 
-            with st.chat_message(role, avatar=avatar):
-                st.markdown(message["content"])
-
-        if prompt := st.chat_input("Ask questions about the algorithm..."):
+        if prompt := st.chat_input("Type your message..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
-
-            with st.chat_message("user", avatar=user_avatar):
+            with st.chat_message("user"):
                 st.markdown(prompt)
 
-            with st.chat_message("assistant", avatar=assistant_avatar):
-                with st.spinner("Analysing diagram structure..."):
-                    try:
-                        response = get_gemini_response(prompt)
-                        st.markdown(response)
+            mode = st.session_state.get("ai_mode", "Generate")
 
-                        st.session_state.messages.append({"role": "assistant", "content": response})
-                    except Exception as e:
-                        st.error(f"Failed to get response: {e}")
+            with st.chat_message("assistant"):
+                if mode == "Generate":
+                    with st.spinner("Designing schema..."):
+                        try:
+                            current_context = st.session_state.selected_context if isinstance(
+                                st.session_state.selected_context, dict) else {"blocks": [], "connections": []}
+
+                            parsed_schema = SchemaManager.generate_schema(prompt, current_context)
+
+                            self._render_schema_block(parsed_schema, is_new=True)
+                            st.session_state.messages.append({"role": "assistant", "content": parsed_schema})
+
+                            SchemaManager.save_to_session(parsed_schema)
+                            st.toast(f"Schema '{parsed_schema.get('title')}' saved!")
+                        except Exception as e:
+                            st.error(f"Generation failed: {e}")
+
+                elif mode == "Analyze":
+                    with st.spinner("Analyzing..."):
+                        try:
+                            chat_history = "\n".join([f"{msg['role'].capitalize()}: {str(msg['content'])}" for msg in
+                                                      st.session_state.messages])
+                            enhanced_prompt = get_analyze_prompt(chat_history)
+                            response = get_gemini_response(enhanced_prompt)
+
+                            st.markdown(response)
+                            st.session_state.messages.append({"role": "assistant", "content": response})
+                        except Exception as e:
+                            st.error(f"Analysis failed: {e}")
+
+    def _render_schema_block(self, schema_data: dict, is_new: bool):
+        title = schema_data.get("title", "Generated Schema")
+        summary = schema_data.get("summary", "No summary provided.")
+
+        st.markdown(f"**{title}**")
+        st.caption(summary)
+
+        with st.expander("View JSON Schema", expanded=False):
+            st.json(schema_data)
+            if st.button("Load into Workspace", key=f"btn_{id(schema_data)}"):
+                st.session_state.selected_context = schema_data
+                st.rerun()
 
     def run(self):
-        """
-        Run the Streamlit app.
-        """
         st.set_page_config(page_title="Algorithm Visualization", layout="wide")
-
         self.apply_custom_styles()
 
         st.title("Algorithm Visualization Tool")
-        st.markdown("Visualize algorithms presented as block schemas and chat with AI for insights.")
 
-        file_content = self.sidebar_manager.render_sidebar()
+        file_content_bytes = self.sidebar_manager.render_sidebar()
 
-        self.render_main_content(file_content)
+        if file_content_bytes:
+            st.session_state.selected_context = file_content_bytes
+
+        self.render_main_content(st.session_state.selected_context)
 
         self.render_chat_component()
 
