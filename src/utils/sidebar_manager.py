@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 from . import EXAMPLES
-from typing import Optional
+from typing import Optional, Tuple
 
 
 class SidebarManager:
@@ -12,15 +12,15 @@ class SidebarManager:
 
     def __init__(self):
         self.EXAMPLES = EXAMPLES
-        self.uploaded_file = None
-        self.selected_example_path = None
+        if "active_algo_data" not in st.session_state:
+            st.session_state.active_algo_data = (None, None)
 
-    def render_sidebar(self) -> Optional[bytes]:
+    def render_sidebar(self) -> Tuple[str, Optional[bytes]]:
         """
         Render the sidebar components for file upload or example selection.
 
         Returns:
-            Optional[bytes]: The file content (uploaded or example), or None.
+            Tuple[str, Optional[bytes]]: (Selected Algorithm Name, File Content or None)
         """
         st.sidebar.title("Algorithm Visualization")
 
@@ -29,19 +29,21 @@ class SidebarManager:
         return self._render_example_mode()
 
 
-    def _render_example_mode(self) -> Optional[bytes]:
+    def _render_example_mode(self) -> Tuple[str, Optional[bytes]]:
         st.sidebar.info("Choose a pre-defined algorithm.")
 
         selected_name = st.sidebar.selectbox(
             "Select Algorithm",
-            options=list(self.EXAMPLES.keys())
+            options=list(self.EXAMPLES.keys()),
+            index=0
         )
 
         self.selected_example_path = self.EXAMPLES.get(selected_name)
 
         if st.sidebar.button("Generate Visualization"):
-            return self._handle_example_load()
-        return None
+            content = self._handle_example_load()
+            st.session_state.active_algo_data = (selected_name, content)
+        return st.session_state.active_algo_data
 
     def _handle_example_load(self) -> Optional[bytes]:
         """Reads the local example file and returns bytes."""

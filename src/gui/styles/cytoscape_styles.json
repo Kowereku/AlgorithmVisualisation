@@ -1,0 +1,111 @@
+{
+  "data_graph": [
+    {
+      "selector": "node",
+      "style": {
+        "label": "data(label)",
+        "color": "#000000",
+        "background-color": "#ffffff",
+        "border-color": "#000000",
+        "border-width": 2,
+        "text-valign": "center",
+        "text-halign": "center",
+        "text-opacity": 1,
+        "text-outline-color": "#000000",
+        "text-outline-width": 1,
+        "width": 40,
+        "height": 40,
+        "font-weight": "bold",
+        "font-size": 12
+      }
+    },
+    {
+      "selector": "edge",
+      "style": {
+        "label": "data(weight)",
+        "color": "#ffffff",
+        "text-outline-color": "#000000",
+        "text-outline-width": 2,
+        "text-background-opacity": 0,
+        "text-opacity": 1,
+        "line-color": "#888888",
+        "width": 2,
+        "font-size": 14,
+        "font-weight": "bold",
+        "curve-style": "bezier"
+      }
+    },
+    {
+      "selector": ".current",
+      "style": {
+        "background-color": "#FFD700",
+        "border-color": "#FF8C00",
+        "color": "#000000"
+      }
+    },
+    {
+      "selector": ".visited",
+      "style": {
+        "background-color": "#87CEFA",
+        "color": "#000000"
+      }
+    },
+    {
+      "selector": ".final-path",
+      "style": {
+        "background-color": "#32CD32",
+        "line-color": "#32CD32",
+        "color": "#000000"
+      }
+    }
+  ],
+  "flowchart": [
+    {
+      "selector": "node",
+      "style": {
+        "label": "data(label)",
+        "shape": "rectangle",
+        "background-color": "#eeeeee",
+        "border-color": "#555555",
+        "border-width": 1,
+        "width": 100,
+        "text-wrap": "wrap",
+        "font-size": 14,
+        "color": "#000000"
+      }
+    },
+    {
+      "selector": ".flow-decision",
+      "style": {
+        "shape": "diamond",
+        "background-color": "#ffecb3",
+        "color": "#000000"
+      }
+    },
+    {
+      "selector": ".flow-start",
+      "style": {
+        "shape": "ellipse",
+        "background-color": "#c8e6c9",
+        "color": "#000000"
+      }
+    },
+    {
+      "selector": ".flow-stop",
+      "style": {
+        "shape": "ellipse",
+        "background-color": "#ffcdd2",
+        "color": "#000000"
+      }
+    },
+    {
+      "selector": ".active-step",
+      "style": {
+        "background-color": "#FFD700",
+        "border-width": 4,
+        "border-color": "#ff0000",
+        "color": "#000000"
+      }
+    }
+  ]
+}

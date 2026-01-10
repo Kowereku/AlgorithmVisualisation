@@ -6,7 +6,6 @@ EXAMPLES = {
     "A* Algorithm": "src/assets/aAsteriskAlgorithm.vsdx",
     "Dijkstra's Algorithm": "src/assets/dijkstraAlgorithm.vsdx",
     "Prim's Algorithm": "src/assets/primsAlgorithm.vsdx",
-    "Floyd Warshall's Algorithm": "src/assets/floydWarshallAlgorithm.vsdx"
 }
 
 
