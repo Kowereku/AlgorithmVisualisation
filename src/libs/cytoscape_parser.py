@@ -1,4 +1,4 @@
-import networkx as nx
+
 
 
 def convert_nx_to_cytoscape(nx_graph):

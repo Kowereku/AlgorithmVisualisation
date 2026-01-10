@@ -1,6 +1,8 @@
 import sys
 import os
 import json
+import time
+
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -20,6 +22,12 @@ class VisoViewApp:
         self.sidebar_manager = SidebarManager()
         if "messages" not in st.session_state:
             st.session_state.messages = []
+
+        # Current simulation state
+        if "simulation_step" not in st.session_state:
+            st.session_state.simulation_step = 0
+        if "is_playing" not in st.session_state:
+            st.session_state.is_playing = False
 
         self.styles = self.load_cytoscape_styles()
 
@@ -60,17 +68,9 @@ class VisoViewApp:
 
         st.markdown(f"### Visualizing: {selected_algo_name}")
 
-        if file_content:
-            with st.expander("View Parsed VSDX Schema (JSON)", expanded=False):
-                parsed_data = self.parse_vsdx_file(file_content)
-                st.json(parsed_data)
-
-        st.markdown("### Visualization Workspace")
-
         vsdx_json = {}
         if file_content:
-            parsed_data = self.parse_vsdx_file(file_content)
-            vsdx_json = parsed_data
+            vsdx_json = self.parse_vsdx_file(file_content)
 
         data_graph = algorithms.get_scenario_data()
 
@@ -86,16 +86,32 @@ class VisoViewApp:
         else:
             trace = algorithms.run_astar_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
 
+        if not trace:
+            st.warning("No trace generated.")
+            return
+
+        max_step = len(trace) - 1
+
+        def on_slider_change():
+            st.session_state.simulation_step = st.session_state.slider_internal_key
+
+        if st.session_state.simulation_step > max_step:
+            st.session_state.simulation_step = 0
+
+        st.session_state.slider_internal_key = st.session_state.simulation_step
+
+        frame_index = st.session_state.simulation_step
+        current_frame = trace[frame_index]
+
         elements_data = cytoscape_parser.convert_nx_to_cytoscape(data_graph)
         elements_flow = cytoscape_parser.convert_vsdx_to_cytoscape(vsdx_json)
 
         if trace:
-            step = st.slider("Execution Step", 0, len(trace) - 1, 0)
-            current_frame = trace[step]
-
             for ele in elements_data:
                 ele_id = ele["data"].get("id")
                 ele["classes"] = "data-node" if "source" not in ele["data"] else "data-edge"
+                ele["locked"] = True
+                ele["grabbable"] = False
 
                 if ele_id and ele_id == current_frame["current_node"]:
                     ele["classes"] += " current"
@@ -119,8 +135,9 @@ class VisoViewApp:
                 st.subheader("Data Processing")
                 cytoscape(
                     elements=elements_data, stylesheet=self.styles["data_graph"],
-                    width="100%", height="500px", layout={"name": "preset"},
-                    key="graph_data"
+                    width="80%", height="400px", layout={"name": "preset"},
+                    key="graph_data", user_zooming_enabled=False,
+                    user_panning_enabled=False,
                 )
 
             with col2:
@@ -128,13 +145,38 @@ class VisoViewApp:
                 if elements_flow:
                     cytoscape(
                         elements=elements_flow, stylesheet=self.styles["flowchart"],
-                        width="100%", height="500px", layout={"name": "breadthfirst"},  # Safe layout
-                        key="graph_flow"
+                        width="80%", height="400px", layout={"name": "breadthfirst"},
+                        key="graph_flow", user_zooming_enabled=False,
+                        user_panning_enabled=False,
                     )
                 else:
                     st.info("No VSDX flow loaded.")
 
-            st.info(f"**Step {step}:** {current_frame['description']}")
+            st.info(f"**Step {frame_index}:** {current_frame['description']}")
+
+            col_btn, col_slider = st.columns([1, 4])
+
+            with col_btn:
+                btn_label = "⏸ Pause" if st.session_state.is_playing else "▶ Play"
+                if st.button(btn_label):
+                    st.session_state.is_playing = not st.session_state.is_playing
+                    st.rerun()
+
+            with col_slider:
+                st.slider(
+                    "Execution Step", 0, max_step,
+                    key="slider_internal_key",
+                    on_change=on_slider_change
+                )
+
+        if st.session_state.is_playing:
+            time.sleep(1.0)
+            if st.session_state.simulation_step < max_step:
+                st.session_state.simulation_step += 1
+                st.rerun()
+            else:
+                st.session_state.is_playing = False
+                st.rerun()
 
     @staticmethod
     def parse_vsdx_file(file_content: bytes):
