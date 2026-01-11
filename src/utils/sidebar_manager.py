@@ -43,6 +43,8 @@ class SidebarManager:
         if st.sidebar.button("Generate Visualization"):
             content = self._handle_example_load()
             st.session_state.active_algo_data = (selected_name, content)
+            st.session_state.simulation_step = 0
+            st.session_state.is_playing = False
         return st.session_state.active_algo_data
 
     def _handle_example_load(self) -> Optional[bytes]:
