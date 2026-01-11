@@ -8,7 +8,7 @@ if __name__ == "__main__":
 
     This script initializes the parser with a .vsdx file and prints the extracted schema.
     """
-    VSDX_FILE_PATH = "Rysunek1.vsdx"
+    VSDX_FILE_PATH = "../schemas/dijkstra_algorithm.vsdx"
 
     print(f"Parser initialization for file: {VSDX_FILE_PATH}")
     parser = VSDXParser(VSDX_FILE_PATH)
