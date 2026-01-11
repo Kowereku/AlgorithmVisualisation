@@ -69,9 +69,9 @@ class VSDXParser:
             return "stop"
         if any(n in name for n in ["decision","diamond"]) or any(op in text for op in [">", "<", "==", "!=","?"]):
             return "decision"
-        if any(n in name for n in ["data","rectangle"]) or any(w in text for w in ["wczytaj", "wyświetl", "podaj","wypisz","wprowadź","zwróć"]):
+        if any(n in name for n in ["data","rectangle"]) or any(w in text for w in ["wczytaj", "wyświetl", "podaj","wypisz","wprowadź","zwróć", "read", "input", "return", "display"]):
             return "io"
-        if "process" in name or any(pr in text for pr in ["=","dodaj","pobierz","usuń","utwórz","wybieramy","ustaw","przenieś"]):
+        if "process" in name or any(pr in text for pr in ["=","dodaj","pobierz","usuń","utwórz","wybieramy","ustaw","przenieś", "add", "extract", "create", "select", "set"]):
             return "process"
         return "unknown"
 
