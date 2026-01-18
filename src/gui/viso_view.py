@@ -11,7 +11,8 @@ from st_cytoscape import cytoscape
 from src.utils.sidebar_manager import SidebarManager
 from src.utils.schema_manager import SchemaManager
 from src.libs.llm_interfaces import get_gemini_response
-from src.libs import algorithms, cytoscape_parserfrom src.prompts.analyze_prompt import get_analyze_prompt
+from src.libs import algorithms, cytoscape_parser
+from src.prompts.analyze_prompt import get_analyze_prompt
 
 
 class VisoViewApp:
@@ -26,30 +27,6 @@ class VisoViewApp:
             st.session_state.ai_generated_schemas = []
         if "selected_context" not in st.session_state:
             st.session_state.selected_context = None
-
-        # Current simulation state
-        if "simulation_step" not in st.session_state:
-            st.session_state.simulation_step = 0
-        if "is_playing" not in st.session_state:
-            st.session_state.is_playing = False
-
-        self.styles = self.load_cytoscape_styles()
-
-    def load_cytoscape_styles(self):
-        """Loads Cytoscape stylesheets from external JSON file."""
-        style_path = os.path.join(os.path.dirname(__file__), "styles", "cytoscape_styles.json")
-        default_styles = {"data_graph": [], "flowchart": []}
-
-        if os.path.exists(style_path):
-            try:
-                with open(style_path, "r") as f:
-                    return json.load(f)
-            except Exception as e:
-                st.error(f"Error loading styles: {e}")
-                return default_styles
-        else:
-            st.warning("Style file not found. Using defaults.")
-            return default_styles
 
         # Current simulation state
         if "simulation_step" not in st.session_state:
@@ -92,61 +69,66 @@ class VisoViewApp:
         Args:
             selection_data (tuple): (Algorithm Name, File Content) from sidebar.
         """
-        selected_algo_name, file_content = selection_data
-
         st.markdown("### Visualization Workspace")
 
         if not selection_data:
             st.info("Please select an algorithm from the sidebar or generate one with AI.")
             return
-        
+
+        selected_algo_name = None
+        file_content = None
         final_schema = None
 
-        if isinstance(selection_data, bytes):
+        if isinstance(selection_data, tuple) and len(selection_data) == 2:
+            selected_algo_name, file_content = selection_data
+        elif isinstance(selection_data, bytes):
+            file_content = selection_data
+        elif isinstance(selection_data, dict):
+            final_schema = selection_data
+        else:
+            st.error(f"Unsupported selection data type: {type(selection_data)}")
+            return
+
+        if file_content and final_schema is None:
             with st.spinner("Parsing Visio file..."):
                 try:
-                    final_schema = SchemaManager.parse_vsdx_file(selection_data)
+                    final_schema = SchemaManager.parse_vsdx_file(file_content)
                 except Exception as e:
                     st.error(str(e))
                     return
 
-        elif isinstance(selection_data, dict):
-            final_schema = selection_data
-
-                else:
-            st.error(f"Unknown data format: {type(context_data)}")
+        if not final_schema:
+            st.error("Failed to extract valid schema data.")
             return
 
-        if final_schema:
-            title = final_schema.get("title", "Algorithm")
-            summary = final_schema.get("summary", "")
+        final_schema = self._normalize_schema(final_schema)
 
-            st.markdown(f"#### {title}")
-            if summary:
-                st.caption(summary)
+        title = final_schema.get("title", "Algorithm")
+        summary = final_schema.get("summary", "")
 
-            st.markdown("##### Schema Structure")
-            st.json(final_schema)
+        st.markdown(f"#### {title}")
+        if summary:
+            st.caption(summary)
 
-            st.success("Schema loaded successfully into workspace.")
-        else:
-            st.error("Failed to extract valid schema data.")
+        st.success("Schema loaded successfully into workspace.")
 
-        vsdx_json = {}
-        if file_content:
-            vsdx_json = self.parse_vsdx_file(file_content)
+        vsdx_json = final_schema if isinstance(final_schema, dict) else {}
 
         data_graph = algorithms.get_scenario_data()
 
         blocks = vsdx_json.get("blocks", [])
         trace = []
 
-        if "A*" in selected_algo_name:
+        algo_label = (selected_algo_name or title).lower()
+
+        if "a*" in algo_label or "a-star" in algo_label or "astar" in algo_label:
             trace = algorithms.run_astar_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
-        elif "Dijkstra" in selected_algo_name:
+        elif "dijkstra" in algo_label:
             trace = algorithms.run_dijkstra_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
-        elif "Prim" in selected_algo_name:
+        elif "prim" in algo_label:
             trace = algorithms.run_prim_simulation(data_graph, "A", vsdx_blocks=blocks)
+        else:
+            trace = algorithms.run_astar_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
         if not trace:
             st.warning("No trace generated.")
             return
@@ -184,6 +166,9 @@ class VisoViewApp:
             active_vsdx_id = current_frame.get("vsdx_id")
             for ele in elements_flow:
                 base_type = ele["data"].get("type", "process")
+                # Render terminator/end blocks with the same styling as start for visual consistency
+                if base_type == "terminator":
+                    base_type = "start"
                 ele["classes"] = f"flow-{base_type}"
 
                 ele_id = ele["data"].get("id")
@@ -301,6 +286,8 @@ class VisoViewApp:
             st.json(schema_data)
             if st.button("Load into Workspace", key=f"btn_{id(schema_data)}"):
                 st.session_state.selected_context = schema_data
+                st.session_state.simulation_step = 0
+                st.session_state.is_playing = False
                 st.rerun()
 
     def run(self):
@@ -321,6 +308,44 @@ class VisoViewApp:
         self.render_main_content(st.session_state.selected_context)
 
         self.render_chat_component()
+
+
+    @staticmethod
+    def _normalize_schema(schema: dict) -> dict:
+        """Normalize schema block types and names for consistent rendering."""
+        allowed = {"process", "decision", "input", "output", "data", "terminator", "start", "end"}
+
+        def normalize_type(raw_type, label_text):
+            normalized = (raw_type or "").strip().lower()
+            if normalized in allowed:
+                return "terminator" if normalized == "end" else normalized
+            lt = (label_text or "").lower()
+            if "start" in lt:
+                return "start"
+            if "end" in lt or "stop" in lt:
+                return "terminator"
+            return "process"
+
+        def normalize_name(raw_name, block_type, label_text):
+            if raw_name:
+                return raw_name
+            if block_type == "start":
+                return "Start"
+            if block_type == "terminator":
+                return "End"
+            if block_type == "decision":
+                return "Decision"
+            return label_text or block_type.title()
+
+        blocks = schema.get("blocks", [])
+        for block in blocks:
+            label = block.get("text", "")
+            b_type = normalize_type(block.get("type", ""), label)
+            b_name = normalize_name(block.get("name"), b_type, label)
+            block["type"] = b_type
+            block["name"] = b_name
+        schema["blocks"] = blocks
+        return schema
 
 
 if __name__ == "__main__":

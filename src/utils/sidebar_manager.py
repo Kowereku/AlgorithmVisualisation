@@ -45,6 +45,8 @@ class SidebarManager:
 
         st.sidebar.markdown("---")
 
+        selected_context = st.session_state.get("selected_context")
+
         if context_source == "Example Algorithms":
             st.sidebar.markdown("### Example Algorithms")
             selected_name = st.sidebar.selectbox(
@@ -56,9 +58,13 @@ class SidebarManager:
             if st.sidebar.button("Visualize Algorithm"):
                 file_content = self._handle_example_load()
                 if file_content:
-                    st.session_state.selected_context = file_content.decode("utf-8")
+                    selected_context = (selected_name, file_content)
+                    st.session_state.selected_context = selected_context
+                    st.session_state.simulation_step = 0
+                    st.session_state.is_playing = False
                 else:
-                    st.session_state.selected_context = ""
+                    selected_context = None
+                    st.session_state.selected_context = selected_context
 
 
         elif context_source == "AI-Generated Schemas":
@@ -73,14 +79,18 @@ class SidebarManager:
 
                 if st.sidebar.button("Load Generated Schema"):
                     selected_data = options[selected_title]
-                    st.session_state.selected_context = selected_data
+                    selected_context = selected_data
+                    st.session_state.selected_context = selected_context
+                    st.session_state.simulation_step = 0
+                    st.session_state.is_playing = False
             else:
                 st.sidebar.info("No AI-generated schemas available.")
-                st.session_state.selected_context = ""
+                selected_context = None
+                st.session_state.selected_context = selected_context
 
         st.sidebar.markdown("---")
 
-        return None
+        return selected_context
 
     def _render_example_mode(self) -> Tuple[str, Optional[bytes]]:
         st.sidebar.info("Choose a pre-defined algorithm.")
