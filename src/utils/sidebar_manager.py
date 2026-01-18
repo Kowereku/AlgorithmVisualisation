@@ -17,17 +17,70 @@ class SidebarManager:
 
     def render_sidebar(self) -> Tuple[str, Optional[bytes]]:
         """
-        Render the sidebar components for file upload or example selection.
+        Render the sidebar components for file upload or example selection and also
+        expose a toggle for selecting either example algorithms or AI-generated schemas.
 
         Returns:
             Tuple[str, Optional[bytes]]: (Selected Algorithm Name, File Content or None)
         """
         st.sidebar.title("Algorithm Visualization")
 
+        st.sidebar.markdown("### AI Mode")
+        ai_mode = st.sidebar.radio(
+            "Select AI Mode",
+            options=["Generate", "Analyze"],
+            index=0 if st.session_state.get("ai_mode", "Generate") == "Generate" else 1
+        )
+        st.session_state.ai_mode = ai_mode
+
         st.sidebar.markdown("---")
 
-        return self._render_example_mode()
+        st.sidebar.markdown("### Context Source")
+        context_source = st.sidebar.radio(
+            "Select context source",
+            options=["Example Algorithms", "AI-Generated Schemas"],
+            index=0
+        )
+        st.session_state.context_source = context_source
 
+        st.sidebar.markdown("---")
+
+        if context_source == "Example Algorithms":
+            st.sidebar.markdown("### Example Algorithms")
+            selected_name = st.sidebar.selectbox(
+                "Select Algorithm",
+                options=list(self.EXAMPLES.keys())
+            )
+            self.selected_example_path = self.EXAMPLES.get(selected_name)
+
+            if st.sidebar.button("Visualize Algorithm"):
+                file_content = self._handle_example_load()
+                if file_content:
+                    st.session_state.selected_context = file_content.decode("utf-8")
+                else:
+                    st.session_state.selected_context = ""
+
+
+        elif context_source == "AI-Generated Schemas":
+
+            st.sidebar.markdown("### AI-Generated Schemas")
+            schemas_list = st.session_state.get("ai_generated_schemas", [])
+
+            if schemas_list:
+
+                options = {item["title"]: item["schema"] for item in schemas_list}
+                selected_title = st.sidebar.selectbox("Select Schema", options=list(options.keys()))
+
+                if st.sidebar.button("Load Generated Schema"):
+                    selected_data = options[selected_title]
+                    st.session_state.selected_context = selected_data
+            else:
+                st.sidebar.info("No AI-generated schemas available.")
+                st.session_state.selected_context = ""
+
+        st.sidebar.markdown("---")
+
+        return None
 
     def _render_example_mode(self) -> Tuple[str, Optional[bytes]]:
         st.sidebar.info("Choose a pre-defined algorithm.")
