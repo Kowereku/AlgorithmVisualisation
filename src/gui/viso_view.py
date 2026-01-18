@@ -1,13 +1,17 @@
 import sys
 import os
+import json
+import time
+
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import streamlit as st
+from st_cytoscape import cytoscape
 from src.utils.sidebar_manager import SidebarManager
 from src.utils.schema_manager import SchemaManager
 from src.libs.llm_interfaces import get_gemini_response
-from src.prompts.analyze_prompt import get_analyze_prompt
+from src.libs import algorithms, cytoscape_parserfrom src.prompts.analyze_prompt import get_analyze_prompt
 
 
 class VisoViewApp:
@@ -23,6 +27,54 @@ class VisoViewApp:
         if "selected_context" not in st.session_state:
             st.session_state.selected_context = None
 
+        # Current simulation state
+        if "simulation_step" not in st.session_state:
+            st.session_state.simulation_step = 0
+        if "is_playing" not in st.session_state:
+            st.session_state.is_playing = False
+
+        self.styles = self.load_cytoscape_styles()
+
+    def load_cytoscape_styles(self):
+        """Loads Cytoscape stylesheets from external JSON file."""
+        style_path = os.path.join(os.path.dirname(__file__), "styles", "cytoscape_styles.json")
+        default_styles = {"data_graph": [], "flowchart": []}
+
+        if os.path.exists(style_path):
+            try:
+                with open(style_path, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                st.error(f"Error loading styles: {e}")
+                return default_styles
+        else:
+            st.warning("Style file not found. Using defaults.")
+            return default_styles
+
+        # Current simulation state
+        if "simulation_step" not in st.session_state:
+            st.session_state.simulation_step = 0
+        if "is_playing" not in st.session_state:
+            st.session_state.is_playing = False
+
+        self.styles = self.load_cytoscape_styles()
+
+    def load_cytoscape_styles(self):
+        """Loads Cytoscape stylesheets from external JSON file."""
+        style_path = os.path.join(os.path.dirname(__file__), "styles", "cytoscape_styles.json")
+        default_styles = {"data_graph": [], "flowchart": []}
+
+        if os.path.exists(style_path):
+            try:
+                with open(style_path, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                st.error(f"Error loading styles: {e}")
+                return default_styles
+        else:
+            st.warning("Style file not found. Using defaults.")
+            return default_styles
+
     @staticmethod
     def apply_custom_styles():
         css_file_path = os.path.join(os.path.dirname(__file__), "styles", "viso_view.css")
@@ -33,27 +85,35 @@ class VisoViewApp:
         except FileNotFoundError:
             pass
 
-    def render_main_content(self, context_data):
+    def render_main_content(self, selection_data):
+        """
+        Render the main content area of the app (Visualization).
+
+        Args:
+            selection_data (tuple): (Algorithm Name, File Content) from sidebar.
+        """
+        selected_algo_name, file_content = selection_data
+
         st.markdown("### Visualization Workspace")
 
-        if not context_data:
+        if not selection_data:
             st.info("Please select an algorithm from the sidebar or generate one with AI.")
             return
-
+        
         final_schema = None
 
-        if isinstance(context_data, bytes):
+        if isinstance(selection_data, bytes):
             with st.spinner("Parsing Visio file..."):
                 try:
-                    final_schema = SchemaManager.parse_vsdx_file(context_data)
+                    final_schema = SchemaManager.parse_vsdx_file(selection_data)
                 except Exception as e:
                     st.error(str(e))
                     return
 
-        elif isinstance(context_data, dict):
-            final_schema = context_data
+        elif isinstance(selection_data, dict):
+            final_schema = selection_data
 
-        else:
+                else:
             st.error(f"Unknown data format: {type(context_data)}")
             return
 
@@ -71,6 +131,115 @@ class VisoViewApp:
             st.success("Schema loaded successfully into workspace.")
         else:
             st.error("Failed to extract valid schema data.")
+
+        vsdx_json = {}
+        if file_content:
+            vsdx_json = self.parse_vsdx_file(file_content)
+
+        data_graph = algorithms.get_scenario_data()
+
+        blocks = vsdx_json.get("blocks", [])
+        trace = []
+
+        if "A*" in selected_algo_name:
+            trace = algorithms.run_astar_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
+        elif "Dijkstra" in selected_algo_name:
+            trace = algorithms.run_dijkstra_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
+        elif "Prim" in selected_algo_name:
+            trace = algorithms.run_prim_simulation(data_graph, "A", vsdx_blocks=blocks)
+        if not trace:
+            st.warning("No trace generated.")
+            return
+
+        max_step = len(trace) - 1
+
+        def on_slider_change():
+            st.session_state.simulation_step = st.session_state.slider_internal_key
+
+        if st.session_state.simulation_step > max_step:
+            st.session_state.simulation_step = 0
+
+        st.session_state.slider_internal_key = st.session_state.simulation_step
+
+        frame_index = st.session_state.simulation_step
+        current_frame = trace[frame_index]
+
+        elements_data = cytoscape_parser.convert_nx_to_cytoscape(data_graph)
+        elements_flow = cytoscape_parser.convert_vsdx_to_cytoscape(vsdx_json)
+
+        if trace:
+            for ele in elements_data:
+                ele_id = ele["data"].get("id")
+                ele["classes"] = "data-node" if "source" not in ele["data"] else "data-edge"
+                ele["locked"] = True
+                ele["grabbable"] = False
+
+                if ele_id and ele_id == current_frame["current_node"]:
+                    ele["classes"] += " current"
+                elif ele_id and ele_id in current_frame["visited"]:
+                    ele["classes"] += " visited"
+                elif ele_id and ele_id in current_frame["path_found"]:
+                    ele["classes"] += " final-path"
+
+            active_vsdx_id = current_frame.get("vsdx_id")
+            for ele in elements_flow:
+                base_type = ele["data"].get("type", "process")
+                ele["classes"] = f"flow-{base_type}"
+
+                ele_id = ele["data"].get("id")
+                if active_vsdx_id and ele_id and str(ele_id) == str(active_vsdx_id):
+                    ele["classes"] += " active-step"
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.subheader("Data Processing")
+                cytoscape(
+                    elements=elements_data, stylesheet=self.styles["data_graph"],
+                    width="80%", height="400px", layout={"name": "preset"},
+                    key="graph_data", user_zooming_enabled=False,
+                    user_panning_enabled=False,
+                )
+
+            with col2:
+                st.subheader("Algorithm Logic")
+                if elements_flow:
+                    cytoscape(
+                        elements=elements_flow, stylesheet=self.styles["flowchart"],
+                        width="80%", height="400px", layout={"name": "breadthfirst"},
+                        key="graph_flow", user_zooming_enabled=False,
+                        user_panning_enabled=False,
+                    )
+                else:
+                    st.info("No VSDX flow loaded.")
+
+            st.info(f"**Step {frame_index}:** {current_frame['description']}")
+
+            col_btn, col_slider = st.columns([1, 4])
+
+            with col_btn:
+                btn_label = "⏸ Pause" if st.session_state.is_playing else "▶ Play"
+                if st.button(btn_label):
+                    st.session_state.is_playing = not st.session_state.is_playing
+                    st.rerun()
+
+            with col_slider:
+                st.slider(
+                    "Execution Step", 0, max_step,
+                    key="slider_internal_key",
+                    on_change=on_slider_change
+                )
+
+        if st.session_state.is_playing:
+            time.sleep(1.0)
+            if st.session_state.simulation_step < max_step:
+                st.session_state.simulation_step += 1
+                st.rerun()
+            else:
+                st.session_state.is_playing = False
+                st.rerun()
+
+
 
     def render_chat_component(self):
         st.divider()
@@ -136,7 +305,11 @@ class VisoViewApp:
 
     def run(self):
         st.set_page_config(page_title="Algorithm Visualization", layout="wide")
-        self.apply_custom_styles()
+
+        try:
+            self.apply_custom_styles()
+        except:
+            pass
 
         st.title("Algorithm Visualization Tool")
 

@@ -3,10 +3,9 @@
 Small reusable helpers for transformations, and validation.
 """
 EXAMPLES = {
-    "A* Algorithm": "src/schemas/aAsteriskAlgorithm.vsdx",
-    "Dijkstra's Algorithm": "src/schemas/dijkstra_algorithm.vsdx",
-    "Prim's Algorithm": "src/schemas/prims_algorithm.vsdx",
-    "Floyd Warshall's Algorithm": "src/schemas/floydWarshallAlgorithm.vsdx"
+    "A* Algorithm": "src/assets/aAsteriskAlgorithm.vsdx",
+    "Dijkstra's Algorithm": "src/assets/dijkstraAlgorithm.vsdx",
+    "Prim's Algorithm": "src/assets/primsAlgorithm.vsdx",
 }
 
 
