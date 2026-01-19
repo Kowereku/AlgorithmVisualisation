@@ -1,37 +1,31 @@
 import streamlit as st
 import os
+import logging
 from . import EXAMPLES
 from typing import Optional, Tuple
 
+logger = logging.getLogger(__name__)
+
 
 class SidebarManager:
-    """
-    A class to manage the Streamlit sidebar components.
-    """
-
-
     def __init__(self):
         self.EXAMPLES = EXAMPLES
         if "active_algo_data" not in st.session_state:
             st.session_state.active_algo_data = (None, None)
 
     def render_sidebar(self) -> Tuple[str, Optional[bytes]]:
-        """
-        Render the sidebar components for file upload or example selection and also
-        expose a toggle for selecting either example algorithms or AI-generated schemas.
-
-        Returns:
-            Tuple[str, Optional[bytes]]: (Selected Algorithm Name, File Content or None)
-        """
         st.sidebar.title("Algorithm Visualization")
 
         st.sidebar.markdown("### AI Mode")
-        ai_mode = st.sidebar.radio(
+
+        if "ai_mode" not in st.session_state:
+            st.session_state.ai_mode = "Generate"
+
+        st.sidebar.radio(
             "Select AI Mode",
             options=["Generate", "Analyze"],
-            index=0 if st.session_state.get("ai_mode", "Generate") == "Generate" else 1
+            key="ai_mode"
         )
-        st.session_state.ai_mode = ai_mode
 
         st.sidebar.markdown("---")
 
@@ -45,7 +39,7 @@ class SidebarManager:
 
         st.sidebar.markdown("---")
 
-        selected_context = st.session_state.get("selected_context")
+        current_selection = st.session_state.get("selected_context")
 
         if context_source == "Example Algorithms":
             st.sidebar.markdown("### Example Algorithms")
@@ -56,62 +50,30 @@ class SidebarManager:
             self.selected_example_path = self.EXAMPLES.get(selected_name)
 
             if st.sidebar.button("Visualize Algorithm"):
+                logger.info(f"Loading example algorithm: {selected_name}")
                 file_content = self._handle_example_load()
                 if file_content:
-                    selected_context = (selected_name, file_content)
-                    st.session_state.selected_context = selected_context
-                    st.session_state.simulation_step = 0
-                    st.session_state.is_playing = False
-                else:
-                    selected_context = None
-                    st.session_state.selected_context = selected_context
-
+                    return (selected_name, file_content)
 
         elif context_source == "AI-Generated Schemas":
-
             st.sidebar.markdown("### AI-Generated Schemas")
             schemas_list = st.session_state.get("ai_generated_schemas", [])
 
             if schemas_list:
-
                 options = {item["title"]: item["schema"] for item in schemas_list}
                 selected_title = st.sidebar.selectbox("Select Schema", options=list(options.keys()))
 
                 if st.sidebar.button("Load Generated Schema"):
-                    selected_data = options[selected_title]
-                    selected_context = selected_data
-                    st.session_state.selected_context = selected_context
-                    st.session_state.simulation_step = 0
-                    st.session_state.is_playing = False
+                    logger.info(f"Loading generated schema: {selected_title}")
+                    return options[selected_title]
             else:
                 st.sidebar.info("No AI-generated schemas available.")
-                selected_context = None
-                st.session_state.selected_context = selected_context
+                return None
 
         st.sidebar.markdown("---")
-
-        return selected_context
-
-    def _render_example_mode(self) -> Tuple[str, Optional[bytes]]:
-        st.sidebar.info("Choose a pre-defined algorithm.")
-
-        selected_name = st.sidebar.selectbox(
-            "Select Algorithm",
-            options=list(self.EXAMPLES.keys()),
-            index=0
-        )
-
-        self.selected_example_path = self.EXAMPLES.get(selected_name)
-
-        if st.sidebar.button("Generate Visualization"):
-            content = self._handle_example_load()
-            st.session_state.active_algo_data = (selected_name, content)
-            st.session_state.simulation_step = 0
-            st.session_state.is_playing = False
-        return st.session_state.active_algo_data
+        return current_selection
 
     def _handle_example_load(self) -> Optional[bytes]:
-        """Reads the local example file and returns bytes."""
         if self.selected_example_path and os.path.exists(self.selected_example_path):
             try:
                 with open(self.selected_example_path, "rb") as f:
@@ -119,8 +81,10 @@ class SidebarManager:
                 st.sidebar.success(f"Loaded: {self.selected_example_path}")
                 return content
             except Exception as e:
+                logger.error(f"Error loading example file: {e}")
                 st.sidebar.error(f"Error loading example: {e}")
                 return None
         else:
+            logger.error(f"Example file not found: {self.selected_example_path}")
             st.sidebar.error(f"File not found: {self.selected_example_path}")
             return None

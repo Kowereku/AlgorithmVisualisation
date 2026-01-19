@@ -1,20 +1,33 @@
 import json
 import re
 import os
+import logging
 import streamlit as st
 from src.libs.llm_interfaces import get_gemini_response
 from src.prompts.generate_prompt import get_generate_prompt
 from src.libs.schema_parser import VSDXParser
 
+logger = logging.getLogger(__name__)
 
 class SchemaManager:
 
     @staticmethod
     def generate_schema(user_prompt: str, example_data: dict) -> dict:
+        logger.info(f"Generating Schema for: {user_prompt}")
+
         system_prompt = get_generate_prompt(example_data)
         full_prompt = f"{system_prompt}\n\nUSER REQUEST: {user_prompt}"
-        raw_response = get_gemini_response(full_prompt)
-        return SchemaManager._clean_and_parse_json(raw_response)
+
+        try:
+            raw_response = get_gemini_response(full_prompt)
+            initial_schema = SchemaManager._clean_and_parse_json(raw_response)
+            logger.info(f"Schema generated with {len(initial_schema.get('blocks', []))} blocks.")
+            return initial_schema
+
+        except Exception as e:
+            logger.error(f"Schema generation failed: {e}")
+            st.error("Failed to generate initial schema.")
+            return {"blocks": [], "connections": []}
 
     @staticmethod
     def parse_vsdx_file(file_content: bytes) -> dict:
@@ -39,6 +52,9 @@ class SchemaManager:
 
     @staticmethod
     def _clean_and_parse_json(text: str) -> dict:
+        if not isinstance(text, str):
+            text = str(text)
+
         text = re.sub(r"```json\s*", "", text)
         text = re.sub(r"```", "", text)
         text = text.strip()
@@ -48,8 +64,11 @@ class SchemaManager:
         except json.JSONDecodeError:
             match = re.search(r'(\{.*\})', text, re.DOTALL)
             if match:
-                return json.loads(match.group(1))
-            raise ValueError("Could not parse valid JSON from AI response.")
+                try:
+                    return json.loads(match.group(1))
+                except:
+                    pass
+            return {}
 
     @staticmethod
     def save_to_session(schema: dict):

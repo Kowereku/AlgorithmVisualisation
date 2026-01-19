@@ -1,38 +1,52 @@
 def get_generate_prompt(parsed_data: dict) -> str:
-    """
-    Generate a strict prompt for creating a new schema.
-    """
     return f"""
-You are an advanced AI assistant. Your ONLY task is to generate a new schema that follows the exact JSON structure defined below.
+You are a Senior Algorithm Visualization Architect.
+Your task is to generate a **perfect, logic-complete** JSON schema for the requested algorithm.
 
-IMPORTANT: 
-1. The response must contain ONLY a single valid JSON object.
-2. Do NOT write markdown formatting (like ```json).
-3. Do NOT include explanations.
-
-**Required JSON Structure:**
-The output object must have exactly these 4 top-level keys:
-{{
-  "title": "A short, descriptive title for this algorithm (max 5 words)",
-  "summary": "A one-sentence summary of what this algorithm does",
-  "blocks": [ ... array of block objects ... ],
-  "connections": [ ... array of connection objects ... ]
-}}
-
-**Block Object Definition:**
-- "id": string (unique)
-- "text": string (content displayed in block)
-- "type": string (choose from: "start", "stop", "process", "decision", "io")
-
-**Connection Object Definition:**
-- "connector_id": string (unique)
-- "from_block_id": string (matches a block id)
-- "to_block_id": string (matches a block id)
-- "text": string (label for the line, e.g., "Yes", "No", or empty)
-
-**Context / Example Pattern:**
-Use the logic or style from this parsed data (but generate a NEW distinct scenario based on user input):
+**CONTEXT (Previous Examples):**
 {parsed_data}
 
-Generate the JSON now.
+---
+
+### **CRITICAL STRUCTURAL RULES (Algorithm Families):**
+
+**1. DECISION TREES (Classification/Flow)**
+* **Visual Metaphor:** A strict hierarchy. Root -> Branches -> Leaves.
+* **Nodes:**
+    * `Root` and `Questions`: Must be type **"decision"**.
+    * `Outcomes/Leaves`: Must be type **"terminator"** (e.g., text: "Class: Apple", "Output: Yes").
+* **Connections:** * Every edge coming FROM a "decision" block **MUST** have a `text` label (e.g., "Yes", "No", "< 5", ">= 5").
+    * **NO DEAD ENDS:** Every path must eventually reach a "terminator".
+
+**2. SORTING (Bubble, Quick, Merge, Heap)**
+* **Visual Metaphor:** A linear loop comparing array indices.
+* **Blocks:** Start -> Outer Loop -> Inner Loop -> Compare -> Swap -> End.
+* **Logic:** The "Compare" decision needs explicit "Yes" (Swap) and "No" (Next) paths.
+
+**3. RECURSIVE ALGORITHMS**
+* **Structure:** Base case check -> Recursive call.
+* **Required Blocks:** Start -> Base Case? (Decision) -> Recursive Step (Process) -> Return (Terminator).
+
+---
+
+### **STRICT JSON OUTPUT FORMAT:**
+Your response must be a **SINGLE VALID JSON OBJECT**.
+
+{{
+  "title": "Exact Algorithm Name",
+  "summary": "Concise summary.",
+  "blocks": [
+    {{ "id": "b1", "text": "Start", "type": "start" }},
+    {{ "id": "b2", "text": "Is It Raining?", "type": "decision" }},
+    {{ "id": "b3", "text": "Take Umbrella", "type": "terminator" }}
+  ],
+  "connections": [
+    {{ "connector_id": "c1", "from_block_id": "b1", "to_block_id": "b2", "text": "" }},
+    {{ "connector_id": "c2", "from_block_id": "b2", "to_block_id": "b3", "text": "Yes" }}
+  ]
+}}
+
+**BLOCK TYPES:** "start", "terminator" (ends/leaves), "decision" (branching), "process" (actions), "io".
+
+GENERATE THE JSON NOW.
 """

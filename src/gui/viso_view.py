@@ -2,135 +2,149 @@ import sys
 import os
 import json
 import time
+import inspect
+import logging
+import streamlit as st
+import networkx as nx
+import numpy as np
+from st_cytoscape import cytoscape
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-import streamlit as st
-from st_cytoscape import cytoscape
 from src.utils.sidebar_manager import SidebarManager
 from src.utils.schema_manager import SchemaManager
-from src.libs.llm_interfaces import get_gemini_response
+from src.utils.algorithm_generator import AlgorithmGenerator
 from src.libs import algorithms, cytoscape_parser
 from src.prompts.analyze_prompt import get_analyze_prompt
+from src.libs.llm_interfaces import get_gemini_response
 
 
 class VisoViewApp:
     def __init__(self):
         self.sidebar_manager = SidebarManager()
+        self.generator = AlgorithmGenerator()
 
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-        if "ai_mode" not in st.session_state:
-            st.session_state.ai_mode = "Generate"
-        if "ai_generated_schemas" not in st.session_state:
-            st.session_state.ai_generated_schemas = []
-        if "selected_context" not in st.session_state:
-            st.session_state.selected_context = None
-
-        # Current simulation state
-        if "simulation_step" not in st.session_state:
-            st.session_state.simulation_step = 0
-        if "is_playing" not in st.session_state:
-            st.session_state.is_playing = False
+        if "messages" not in st.session_state: st.session_state.messages = []
+        if "ai_generated_schemas" not in st.session_state: st.session_state.ai_generated_schemas = []
+        if "selected_context" not in st.session_state: st.session_state.selected_context = None
+        if "new_algorithm_loaded" not in st.session_state: st.session_state.new_algorithm_loaded = False
+        if "simulation_step" not in st.session_state: st.session_state.simulation_step = 0
+        if "is_playing" not in st.session_state: st.session_state.is_playing = False
 
         self.styles = self.load_cytoscape_styles()
 
     def load_cytoscape_styles(self):
-        """Loads Cytoscape stylesheets from external JSON file."""
         style_path = os.path.join(os.path.dirname(__file__), "styles", "cytoscape_styles.json")
         default_styles = {"data_graph": [], "flowchart": []}
-
         if os.path.exists(style_path):
             try:
                 with open(style_path, "r") as f:
                     return json.load(f)
             except Exception as e:
-                st.error(f"Error loading styles: {e}")
+                logger.error(f"Failed to load styles: {e}")
                 return default_styles
-        else:
-            st.warning("Style file not found. Using defaults.")
-            return default_styles
+        return default_styles
+
+    @staticmethod
+    def _sanitize_for_json(obj):
+        if isinstance(obj, dict):
+            return {k: VisoViewApp._sanitize_for_json(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [VisoViewApp._sanitize_for_json(i) for i in obj]
+        elif isinstance(obj, (np.ndarray, set)):
+            return [VisoViewApp._sanitize_for_json(i) for i in list(obj)]
+        elif isinstance(obj, (np.int64, np.int32)):
+            return int(obj)
+        elif isinstance(obj, (np.float64, np.float32)):
+            return float(obj)
+        return obj
 
     @staticmethod
     def apply_custom_styles():
         css_file_path = os.path.join(os.path.dirname(__file__), "styles", "viso_view.css")
         try:
             with open(css_file_path, "r") as css_file:
-                css_content = css_file.read()
-            st.markdown(f"<style>{css_content}</style>", unsafe_allow_html=True)
+                st.markdown(f"<style>{css_file.read()}</style>", unsafe_allow_html=True)
         except FileNotFoundError:
             pass
 
-    def render_main_content(self, selection_data):
-        """
-        Render the main content area of the app (Visualization).
+    def render_main_content(self, context_data):
 
-        Args:
-            selection_data (tuple): (Algorithm Name, File Content) from sidebar.
-        """
-        st.markdown("### Visualization Workspace")
-
-        if not selection_data:
-            st.info("Please select an algorithm from the sidebar or generate one with AI.")
-            return
-
-        selected_algo_name = None
-        file_content = None
         final_schema = None
+        data_graph = None
+        trace = []
+        display_title = "VISO - Algorithm Visualization"
 
-        if isinstance(selection_data, tuple) and len(selection_data) == 2:
-            selected_algo_name, file_content = selection_data
-        elif isinstance(selection_data, bytes):
-            file_content = selection_data
-        elif isinstance(selection_data, dict):
-            final_schema = selection_data
-        else:
-            st.error(f"Unsupported selection data type: {type(selection_data)}")
-            return
+        if isinstance(context_data, tuple) or isinstance(context_data, bytes):
+            file_content = context_data[1] if isinstance(context_data, tuple) else context_data
+            algo_name = context_data[0] if isinstance(context_data, tuple) else "Imported Schema"
+            display_title = algo_name
 
-        if file_content and final_schema is None:
-            with st.spinner("Parsing Visio file..."):
+            if file_content:
                 try:
                     final_schema = SchemaManager.parse_vsdx_file(file_content)
+                    final_schema = self._normalize_schema(final_schema)
+                    final_schema["title"] = algo_name
                 except Exception as e:
-                    st.error(str(e))
+                    logger.error(f"Error parsing legacy file: {e}")
+                    st.error(f"Error parsing file: {e}")
                     return
 
-        if not final_schema:
-            st.error("Failed to extract valid schema data.")
-            return
+            if final_schema:
+                data_graph = algorithms.get_scenario_data()
+                blocks = final_schema.get("blocks", [])
+                label = (algo_name or "").lower()
 
-        final_schema = self._normalize_schema(final_schema)
+                if "a*" in label or "astar" in label:
+                    trace = algorithms.run_astar_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
+                elif "dijkstra" in label:
+                    trace = algorithms.run_dijkstra_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
+                elif "prim" in label:
+                    trace = algorithms.run_prim_simulation(data_graph, "A", vsdx_blocks=blocks)
+                else:
+                    trace = algorithms.run_astar_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
 
-        title = final_schema.get("title", "Algorithm")
-        summary = final_schema.get("summary", "")
+        elif isinstance(context_data, dict):
+            final_schema = context_data.get("schema")
+            data_code = context_data.get("data_code")
+            sim_code = context_data.get("sim_code")
+            display_title = context_data.get("title", final_schema.get("title", "Generated Algorithm"))
 
-        st.markdown(f"#### {title}")
-        if summary:
-            st.caption(summary)
+            execution_scope = {
+                "algorithms": algorithms, "nx": nx, "networkx": nx,
+                "heapq": algorithms.heapq, "math": algorithms.math, "random": algorithms.random,
+                "get_id": lambda b, k: next((x['id'] for x in b if k.lower() in x.get('text', '').lower()), None),
+                "print": lambda *args: None
+            }
+            try:
+                exec(data_code, execution_scope)
+                if "get_data" in execution_scope:
+                    data_graph = execution_scope["get_data"]()
 
-        st.success("Schema loaded successfully into workspace.")
+                if data_graph is None or not isinstance(data_graph, nx.Graph):
+                    logger.error(f"Invalid data type: {type(data_graph)}")
+                    st.error(f"Runtime Error: Generated data was {type(data_graph).__name__}, expected NetworkX Graph.")
+                    return
 
-        vsdx_json = final_schema if isinstance(final_schema, dict) else {}
+                exec(sim_code, execution_scope)
+                if "run_simulation" in execution_scope:
+                    trace = execution_scope["run_simulation"](data_graph, final_schema.get("blocks", []))
 
-        data_graph = algorithms.get_scenario_data()
+            except Exception as e:
+                logger.error(f"Runtime Exception in Generated Algo: {e}", exc_info=True)
+                st.error(f"Runtime Error in Generated Algorithm: {e}")
+                return
 
-        blocks = vsdx_json.get("blocks", [])
-        trace = []
+        st.markdown(f"#### {display_title}")
 
-        algo_label = (selected_algo_name or title).lower()
-
-        if "a*" in algo_label or "a-star" in algo_label or "astar" in algo_label:
-            trace = algorithms.run_astar_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
-        elif "dijkstra" in algo_label:
-            trace = algorithms.run_dijkstra_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
-        elif "prim" in algo_label:
-            trace = algorithms.run_prim_simulation(data_graph, "A", vsdx_blocks=blocks)
-        else:
-            trace = algorithms.run_astar_simulation(data_graph, "A", "C", vsdx_blocks=blocks)
         if not trace:
-            st.warning("No trace generated.")
             return
 
         max_step = len(trace) - 1
@@ -142,78 +156,47 @@ class VisoViewApp:
             st.session_state.simulation_step = 0
 
         st.session_state.slider_internal_key = st.session_state.simulation_step
-
         frame_index = st.session_state.simulation_step
         current_frame = trace[frame_index]
 
-        elements_data = cytoscape_parser.convert_nx_to_cytoscape(data_graph)
-        elements_flow = cytoscape_parser.convert_vsdx_to_cytoscape(vsdx_json)
+        elements_data_raw = cytoscape_parser.convert_nx_to_cytoscape(data_graph)
+        elements_flow_raw = cytoscape_parser.convert_vsdx_to_cytoscape(final_schema)
 
-        if trace:
-            for ele in elements_data:
-                ele_id = ele["data"].get("id")
-                ele["classes"] = "data-node" if "source" not in ele["data"] else "data-edge"
-                ele["locked"] = True
-                ele["grabbable"] = False
+        elements_data = self._sanitize_for_json(elements_data_raw)
+        elements_flow = self._sanitize_for_json(elements_flow_raw)
 
-                if ele_id and ele_id == current_frame["current_node"]:
-                    ele["classes"] += " current"
-                elif ele_id and ele_id in current_frame["visited"]:
-                    ele["classes"] += " visited"
-                elif ele_id and ele_id in current_frame["path_found"]:
-                    ele["classes"] += " final-path"
+        self._apply_trace_highlights(elements_data, elements_flow, current_frame)
 
-            active_vsdx_id = current_frame.get("vsdx_id")
-            for ele in elements_flow:
-                base_type = ele["data"].get("type", "process")
-                # Render terminator/end blocks with the same styling as start for visual consistency
-                if base_type == "terminator":
-                    base_type = "start"
-                ele["classes"] = f"flow-{base_type}"
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Data Structure")
+            if "data_values" in current_frame:
+                self._update_node_labels(elements_data, current_frame["data_values"])
 
-                ele_id = ele["data"].get("id")
-                if active_vsdx_id and ele_id and str(ele_id) == str(active_vsdx_id):
-                    ele["classes"] += " active-step"
+            cytoscape(
+                elements=elements_data, stylesheet=self.styles["data_graph"],
+                width="100%", height="600px", layout={"name": "preset"},
+                key="graph_data", user_zooming_enabled=False, user_panning_enabled=False
+            )
 
-            col1, col2 = st.columns(2)
+        with col2:
+            st.subheader("Flow Logic")
+            cytoscape(
+                elements=elements_flow, stylesheet=self.styles["flowchart"],
+                width="100%", height="600px", layout={"name": "breadthfirst"},
+                key="graph_flow", user_zooming_enabled=False, user_panning_enabled=False
+            )
 
-            with col1:
-                st.subheader("Data Processing")
-                cytoscape(
-                    elements=elements_data, stylesheet=self.styles["data_graph"],
-                    width="80%", height="400px", layout={"name": "preset"},
-                    key="graph_data", user_zooming_enabled=False,
-                    user_panning_enabled=False,
-                )
+        st.info(f"**Step {frame_index}:** {current_frame.get('description', '')}")
 
-            with col2:
-                st.subheader("Algorithm Logic")
-                if elements_flow:
-                    cytoscape(
-                        elements=elements_flow, stylesheet=self.styles["flowchart"],
-                        width="80%", height="400px", layout={"name": "breadthfirst"},
-                        key="graph_flow", user_zooming_enabled=False,
-                        user_panning_enabled=False,
-                    )
-                else:
-                    st.info("No VSDX flow loaded.")
+        col_btn, col_slider = st.columns([1, 4])
+        with col_btn:
+            if st.button("⏸ Pause" if st.session_state.is_playing else "▶ Play"):
+                st.session_state.is_playing = not st.session_state.is_playing
+                st.rerun()
 
-            st.info(f"**Step {frame_index}:** {current_frame['description']}")
-
-            col_btn, col_slider = st.columns([1, 4])
-
-            with col_btn:
-                btn_label = "⏸ Pause" if st.session_state.is_playing else "▶ Play"
-                if st.button(btn_label):
-                    st.session_state.is_playing = not st.session_state.is_playing
-                    st.rerun()
-
-            with col_slider:
-                st.slider(
-                    "Execution Step", 0, max_step,
-                    key="slider_internal_key",
-                    on_change=on_slider_change
-                )
+        with col_slider:
+            st.slider("Step", 0, max_step, key="slider_internal_key", on_change=on_slider_change)
 
         if st.session_state.is_playing:
             time.sleep(1.0)
@@ -224,128 +207,206 @@ class VisoViewApp:
                 st.session_state.is_playing = False
                 st.rerun()
 
+    def _apply_trace_highlights(self, data_elements, flow_elements, frame):
+        current_nodes = [str(x) for x in (frame.get("path_found", []) or [])]
+        visited_nodes = [str(x) for x in (frame.get("visited", []) or [])]
+        node_colors = frame.get("node_colors") or {}
 
+        for ele in data_elements:
+            eid = ele["data"].get("id")
+            if not eid: continue
+            eid = str(eid)
+
+            if eid in node_colors:
+                ele["data"]["color"] = node_colors[eid]
+
+            if eid in current_nodes:
+                ele["classes"] += " current"
+            elif eid in visited_nodes:
+                ele["classes"] += " visited"
+
+        active_vsdx_id = frame.get("vsdx_id")
+        if active_vsdx_id:
+            for ele in flow_elements:
+                if str(ele["data"].get("id")) == str(active_vsdx_id):
+                    ele["classes"] += " active-step"
+
+    def _update_node_labels(self, elements, values_dict):
+        for ele in elements:
+            eid = ele["data"].get("id")
+            if eid and str(eid) in values_dict:
+                ele["data"]["label"] = str(values_dict[str(eid)])
 
     def render_chat_component(self):
         st.divider()
         st.subheader("AI Visualization Assistant")
 
-        for message in st.session_state.messages:
-            role = message["role"]
-            with st.chat_message(role):
-                if role == "assistant" and isinstance(message["content"], dict):
-                    self._render_schema_block(message["content"], is_new=False)
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                if isinstance(msg["content"], dict):
+                    self._render_schema_summary(msg["content"])
                 else:
-                    st.markdown(message["content"])
+                    st.markdown(msg["content"])
 
-        if prompt := st.chat_input("Type your message..."):
+        if prompt := st.chat_input("Ask about visualized algorithm or create the new one."):
             st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
+            st.rerun()
 
+        if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+            user_msg = st.session_state.messages[-1]["content"]
             mode = st.session_state.get("ai_mode", "Generate")
 
             with st.chat_message("assistant"):
                 if mode == "Generate":
-                    with st.spinner("Designing schema..."):
+                    with st.spinner("Generating..."):
+
+                        MAX_RETRIES = 3
+                        attempt = 0
+                        valid_package = None
+                        last_error = None
+
                         try:
-                            current_context = st.session_state.selected_context if isinstance(
-                                st.session_state.selected_context, dict) else {"blocks": [], "connections": []}
+                            pkg = self.generator.generate_full_algorithm(user_msg)
 
-                            parsed_schema = SchemaManager.generate_schema(prompt, current_context)
+                            while attempt < MAX_RETRIES:
+                                try:
+                                    def get_id(blocks, keyword):
+                                        for b in blocks:
+                                            if keyword.lower() in b.get("text", "").lower():
+                                                return b["id"]
+                                        return None
 
-                            self._render_schema_block(parsed_schema, is_new=True)
-                            st.session_state.messages.append({"role": "assistant", "content": parsed_schema})
+                                    scope = {
+                                        "algorithms": algorithms, "nx": nx, "networkx": nx,
+                                        "heapq": algorithms.heapq, "math": algorithms.math, "random": algorithms.random,
+                                        "get_id": get_id, "print": lambda *args: None
+                                    }
+                                    exec(pkg['data_code'], scope)
+                                    if 'get_data' not in scope: raise ValueError("get_data() missing")
+                                    data = scope['get_data']()
 
-                            SchemaManager.save_to_session(parsed_schema)
-                            st.toast(f"Schema '{parsed_schema.get('title')}' saved!")
-                        except Exception as e:
-                            st.error(f"Generation failed: {e}")
+                                    if not isinstance(data, nx.Graph):
+                                        raise ValueError(
+                                            f"get_data() returned {type(data)}. Must return networkx.Graph")
+
+                                    exec(pkg['sim_code'], scope)
+                                    if 'run_simulation' not in scope: raise ValueError("run_simulation() missing")
+                                    trace = scope['run_simulation'](data, pkg['schema'].get('blocks', []))
+
+                                    if not trace or not isinstance(trace, list):
+                                        raise ValueError("Simulation returned no trace")
+
+                                    valid_package = pkg
+                                    break
+
+                                except Exception as e:
+                                    last_error = str(e)
+                                    attempt += 1
+                                    logger.warning(f"Runtime attempt {attempt} failed: {e}. Fixing code...")
+                                    if attempt < MAX_RETRIES:
+                                        st.toast(f"Refining code (Attempt {attempt}): {e}", icon="🔧")
+                                        pkg = self.generator.fix_generated_code(pkg, last_error)
+
+                            if valid_package:
+                                st.session_state.selected_context = valid_package
+                                st.session_state.new_algorithm_loaded = True
+                                self._save_generated_algo(valid_package)
+                                st.rerun()
+                            else:
+                                st.error(f"Failed to generate valid visualization after {MAX_RETRIES} attempts.")
+                                if last_error:
+                                    st.error(f"Last Error: {last_error}")
+
+                        except Exception as api_err:
+                            st.error(f"AI Service Error: {str(api_err)}")
 
                 elif mode == "Analyze":
                     with st.spinner("Analyzing..."):
                         try:
-                            chat_history = "\n".join([f"{msg['role'].capitalize()}: {str(msg['content'])}" for msg in
-                                                      st.session_state.messages])
-                            enhanced_prompt = get_analyze_prompt(chat_history)
-                            response = get_gemini_response(enhanced_prompt)
+                            chat_history = "\n".join(
+                                [f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages])
+                            context_data = st.session_state.selected_context
+                            schema_ctx = {}
+                            code_ctx = ""
 
+                            if isinstance(context_data, dict) and "sim_code" in context_data:
+                                schema_ctx = context_data.get("schema", {})
+                                code_ctx = f"DATA:\n{context_data.get('data_code')}\n\nSIM:\n{context_data.get('sim_code')}"
+                            else:
+                                schema_ctx = {"info": "Pre-defined VSDX schema."}
+                                algo_name = context_data[0] if isinstance(context_data, tuple) else "Imported"
+                                label = algo_name.lower()
+                                target_func = None
+                                if "a*" in label or "astar" in label:
+                                    target_func = algorithms.run_astar_simulation
+                                elif "dijkstra" in label:
+                                    target_func = algorithms.run_dijkstra_simulation
+                                elif "prim" in label:
+                                    target_func = algorithms.run_prim_simulation
+
+                                if target_func:
+                                    code_ctx = inspect.getsource(target_func)
+                                else:
+                                    code_ctx = "Standard algorithms library."
+
+                            full_prompt = get_analyze_prompt(chat_history, schema_ctx, code_ctx)
+                            response = get_gemini_response(full_prompt)
                             st.markdown(response)
                             st.session_state.messages.append({"role": "assistant", "content": response})
                         except Exception as e:
                             st.error(f"Analysis failed: {e}")
 
-    def _render_schema_block(self, schema_data: dict, is_new: bool):
-        title = schema_data.get("title", "Generated Schema")
-        summary = schema_data.get("summary", "No summary provided.")
+    def _render_schema_summary(self, pkg):
+        st.markdown(f"**Generated: {pkg['schema'].get('title')}**")
+        st.caption("Algorithm generated successfully.")
 
-        st.markdown(f"**{title}**")
-        st.caption(summary)
-
-        with st.expander("View JSON Schema", expanded=False):
-            st.json(schema_data)
-            if st.button("Load into Workspace", key=f"btn_{id(schema_data)}"):
-                st.session_state.selected_context = schema_data
-                st.session_state.simulation_step = 0
-                st.session_state.is_playing = False
-                st.rerun()
-
-    def run(self):
-        st.set_page_config(page_title="Algorithm Visualization", layout="wide")
-
-        try:
-            self.apply_custom_styles()
-        except:
-            pass
-
-        st.title("Algorithm Visualization Tool")
-
-        file_content_bytes = self.sidebar_manager.render_sidebar()
-
-        if file_content_bytes:
-            st.session_state.selected_context = file_content_bytes
-
-        self.render_main_content(st.session_state.selected_context)
-
-        self.render_chat_component()
-
+    def _save_generated_algo(self, pkg):
+        if "ai_generated_schemas" not in st.session_state:
+            st.session_state.ai_generated_schemas = []
+        entry = {"title": pkg["schema"].get("title", "Unknown"), "schema": pkg}
+        st.session_state.ai_generated_schemas.append(entry)
 
     @staticmethod
     def _normalize_schema(schema: dict) -> dict:
-        """Normalize schema block types and names for consistent rendering."""
         allowed = {"process", "decision", "input", "output", "data", "terminator", "start", "end"}
-
-        def normalize_type(raw_type, label_text):
-            normalized = (raw_type or "").strip().lower()
-            if normalized in allowed:
-                return "terminator" if normalized == "end" else normalized
-            lt = (label_text or "").lower()
-            if "start" in lt:
-                return "start"
-            if "end" in lt or "stop" in lt:
-                return "terminator"
-            return "process"
-
-        def normalize_name(raw_name, block_type, label_text):
-            if raw_name:
-                return raw_name
-            if block_type == "start":
-                return "Start"
-            if block_type == "terminator":
-                return "End"
-            if block_type == "decision":
-                return "Decision"
-            return label_text or block_type.title()
-
         blocks = schema.get("blocks", [])
         for block in blocks:
             label = block.get("text", "")
-            b_type = normalize_type(block.get("type", ""), label)
-            b_name = normalize_name(block.get("name"), b_type, label)
+            raw_type = (block.get("type", "") or "").lower()
+            if "start" in label.lower():
+                b_type = "start"
+            elif "end" in label.lower():
+                b_type = "terminator"
+            elif raw_type in allowed:
+                b_type = "terminator" if raw_type == "end" else raw_type
+            else:
+                b_type = "process"
             block["type"] = b_type
-            block["name"] = b_name
         schema["blocks"] = blocks
         return schema
+
+    def run(self):
+        st.set_page_config(page_title="VISO", layout="wide")
+        self.apply_custom_styles()
+
+        if st.session_state.new_algorithm_loaded:
+            st.session_state.messages = []
+            st.session_state.new_algorithm_loaded = False
+            if isinstance(st.session_state.selected_context, dict) and "schema" in st.session_state.selected_context:
+                st.session_state.messages.append({"role": "assistant", "content": st.session_state.selected_context})
+
+        new_selection = self.sidebar_manager.render_sidebar()
+
+        if new_selection and new_selection != st.session_state.selected_context:
+            logger.info("Context switch detected.")
+            st.session_state.selected_context = new_selection
+            st.session_state.simulation_step = 0
+            st.session_state.is_playing = False
+            st.session_state.new_algorithm_loaded = True
+            st.rerun()
+
+        self.render_main_content(st.session_state.selected_context)
+        self.render_chat_component()
 
 
 if __name__ == "__main__":
